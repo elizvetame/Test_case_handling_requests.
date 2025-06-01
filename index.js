@@ -29,20 +29,43 @@ async function init() {
     }
 
     Appeal = sequelize.define('appeals', {
-        id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-        topic: { type: DataTypes.STRING, allowNull: false },
-        description: { type: DataTypes.TEXT, allowNull: false },
-        status: { type: DataTypes.ENUM('New', 'InProgress', 'Completed', 'Cancelled'), allowNull: false, defaultValue: 'New' },
-        decision: { type: DataTypes.TEXT, allowNull: true },
-        cancellationReason: { type: DataTypes.TEXT, allowNull: true },
-        createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+        id: {
+            type: DataTypes.INTEGER,
+            primaryKey: true,
+            autoIncrement: true
+        },
+        topic: {
+            type: DataTypes.STRING,
+            allowNull: false
+        },
+        description: {
+            type: DataTypes.TEXT,
+            allowNull: false
+        },
+        status: {
+            type: DataTypes.ENUM('New', 'InProgress', 'Completed', 'Cancelled'),
+            allowNull: false,
+            defaultValue: 'New'
+        },
+        decision: {
+            type: DataTypes.TEXT,
+            allowNull: true
+        },
+        cancellationReason: {
+            type: DataTypes.TEXT,
+            allowNull: true },
+        createdAt: {
+            type: DataTypes.DATE,
+            allowNull: false,
+            defaultValue: DataTypes.NOW
+        },
     }, {
         tableName: 'appeals',
         timestamps: true,
         updatedAt: false,
     });
 
-    await sequelize.sync({ force: true }); // Для разработки
+    await sequelize.sync({ force: true });
     console.log('Database synced');
 }
 
@@ -54,6 +77,7 @@ app.get('/addAppeals', async (req, res) => {
     res.render('addAppeals', { error: null });
 });
 
+// добавление обращения
 app.post('/addAppeals', async (req, res) => {
     try {
         const { topic, description } = req.body;
@@ -118,11 +142,11 @@ app.post('/appeals', async (req, res) => {
 
 */
 
-
+//показ обращений по одной дате
 app.get('/appeals', async (req, res) => {
     let appeals = [];
     try {
-        const {date, startDate, endDate} = req.query; // Параметры из строки запроса
+        const {date, startDate, endDate} = req.query;
         const where = {};
 
 
@@ -165,9 +189,11 @@ app.get('/appeals', async (req, res) => {
         res.status(500).render('appeals', {appeals: [], error: 'Failed to fetch appeals'});
     }
 });
+
+//показ обращений по диапазону дат
 app.get('/appeals', async (req, res) => {
     try {
-        const { date, startDate, endDate } = req.query; // Параметры из строки запроса
+        const { date, startDate, endDate } = req.query;
         const where = {};
 
         if (date) {
@@ -204,9 +230,10 @@ app.get('/appeals', async (req, res) => {
     }
 });
 
+// перенаправление или пустой список
 app.post('/appeals', async (req, res) => {
     try {
-        const { date, startDate, endDate } = req.body; // Параметры из тела формы
+        const { date, startDate, endDate } = req.body;
         let query = '';
 
         // Формирование строки запроса для редиректа
@@ -217,96 +244,37 @@ app.post('/appeals', async (req, res) => {
             query = `date=${encodeURIComponent(date)}`;
         } else if (startDate && endDate) {
             if (isNaN(new Date(startDate).getTime()) || isNaN(new Date(endDate).getTime())) {
+
                 return res.status(400).render('appeals', { appeals: [], error: 'Неверный формат дат' });
             }
             query = `startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
         } else if (startDate || endDate) {
+
             return res.status(400).render('appeals', { appeals: [], error: 'Укажите обе даты для диапазона' });
         }
 
         // Редирект на GET /appeals с параметрами
         res.redirect(`/appeals${query ? '?' + query : ''}`);
     } catch (error) {
+
         console.error('Error in /appeals:', error.message, error.stack);
         res.status(500).render('appeals', { appeals: [], error: 'Не удалось обработать запрос' });
     }
 });
 
-app.patch('/appeals/:id/start', async (req, res) => {
-    try {
-        const appeal = await Appeal.findByPk(req.params.id);
-        if (!appeal) {
-            return res.status(404).json({ error: 'Appeal not found' });
-        }
-        if (appeal.status !== 'New') {
-            return res.status(400).json({ error: 'Appeal must be in New status' });
-        }
-        await appeal.update({ status: 'InProgress' });
-        res.json(appeal);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to start appeal' });
+
+// перенаправление или пустой список
+app.post('/takeAppeal', async (req, res) => {
+    const { appealId } = req.body;
+    const appeal = await Appeal.findOne({ where: { id: appealId} });
+    if (!appeal) {
+        return res.status(404).json({ error: 'Обращение не найдено' });
     }
+    appeal.status = 'InProgress';
+    const show_modal = !!req.body.modal;
+    res.render('takeAppeal', { appeal, show_modal});
 });
 
-app.patch('/appeals/:id/complete', async (req, res) => {
-    try {
-        const { resolution } = req.body;
-        if (!resolution) {
-            return res.status(400).json({ error: 'Resolution is required' });
-        }
-        const appeal = await Appeal.findByPk(req.params.id);
-        if (!appeal) {
-            return res.status(404).json({ error: 'Appeal not found' });
-        }
-        if (appeal.status !== 'InProgress') {
-            return res.status(400).json({ error: 'Appeal must be in InProgress status' });
-        }
-        await appeal.update({ status: 'Completed', resolution });
-        res.json(appeal);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to complete appeal' });
-    }
-});
-
-app.patch('/appeals/:id/cancel', async (req, res) => {
-    try {
-        const { cancellationReason } = req.body;
-        if (!cancellationReason) {
-            return res.status(400).json({ error: 'Cancellation reason is required' });
-        }
-        const appeal = await Appeal.findByPk(req.params.id);
-        if (!appeal) {
-            return res.status(404).json({ error: 'Appeal not found' });
-        }
-        if (appeal.status === 'Completed' || appeal.status === 'Cancelled') {
-            return res.status(400).json({ error: 'Appeal cannot be cancelled' });
-        }
-        await appeal.update({ status: 'Cancelled', cancellationReason });
-        res.json(appeal);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to cancel appeal' });
-    }
-});
-
-app.patch('/appeals/cancel-all-in-progress', async (req, res) => {
-    try {
-        const { cancellationReason } = req.body;
-        if (!cancellationReason) {
-            return res.status(400).json({ error: 'Cancellation reason is required' });
-        }
-        const [affectedCount] = await Appeal.update(
-            { status: 'Cancelled', cancellationReason },
-            { where: { status: 'InProgress' } }
-        );
-        res.json({ message: `Cancelled ${affectedCount} appeals` });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Failed to cancel appeals' });
-    }
-});
 
 init().then(() => {
     app.listen(port, () => {

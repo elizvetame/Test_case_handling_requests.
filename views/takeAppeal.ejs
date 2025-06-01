@@ -38,12 +38,10 @@
         .error {
             color: red;
             margin: 10px 0;
-
         }
         .success {
             color: green;
             margin: 10px 0;
-
         }
         table {
             width: 100%;
@@ -58,27 +56,45 @@
         th {
             background: #f4f4f4;
         }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            width: 400px;
+            max-width: 90%;
+        }
+        .modal-content textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .modal-content button {
+            width: auto;
+            margin: 5px;
+        }
     </style>
 </head>
 <body>
 <h1>Список обращений</h1>
 
-<form action="/appeals" method="POST">
-    <label>Фильтр по дате:</label>
-    <input type="date" id="date" name="date">
-    <label>Или по диапазону дат:</label>
-    <input type="date" id="startDate" name="startDate">
-    <input type="date" id="endDate" name="endDate">
-    <div id="buttonContainerId">
-        <button type="submit">Показать обращения</button>
-    </div>
-</form>
 
-<form action="/takeAppeal" method="POST">
     <table id="appealsTable">
         <thead>
         <tr>
-            <th>Выбрать</th>
             <th>ID</th>
             <th>Тема</th>
             <th>Описание</th>
@@ -89,11 +105,8 @@
         </tr>
         </thead>
         <tbody id="appealsBody">
-        <% appeals.forEach(appeal => { %>
+
             <tr>
-                <td>
-                    <input type="radio" name="appealId" value="<%= appeal.id %>" <%= appeal.status !== 'New' ? 'disabled' : '' %>>
-                </td>
                 <td><%= appeal.id || '-' %></td>
                 <td><%= appeal.topic || '-' %></td>
                 <td><%= appeal.description || '-' %></td>
@@ -102,15 +115,47 @@
                 <td><%= appeal.cancellationReason || '-' %></td>
                 <td><%= appeal.createdAt ? new Date(appeal.createdAt).toLocaleString('ru-RU') : '-' %></td>
             </tr>
-        <% }) %>
+
         </tbody>
     </table>
-    <div id="takeButtonContainerId">
-        <button type="submit">Взять в работу</button>
+<form id="appealForm" action="/take" method="POST">
+    <div id="endTheAppeal">
+        <button type="button" onclick="openModal()">Завершить обращение</button>
     </div>
 </form>
 
+<!-- Модальное окно -->
+<div id="decisionModal" class="modal">
+    <div class="modal-content">
+        <h2>Решение по обращению</h2>
+        <form id="decisionForm" action="/completeAppeal" method="POST">
+            <input type="hidden" name="appealId" id="modalAppealId">
+            <textarea id="decisionText" name="decision" placeholder="Введите текст решения" required></textarea>
+            <button type="submit">Отправить</button>
+            <button type="button" onclick="closeModal()">Отмена</button>
+        </form>
+    </div>
+</div>
+
 <p id="errorMessage" class="error"></p>
 <p id="successMessage" class="success"></p>
+
+<script>
+    function openModal() {
+        const selectedAppeal = document.querySelector('input[name="appealId"]:checked');
+        if (!selectedAppeal) {
+            document.getElementById('errorMessage').textContent = 'Выберите обращение!';
+            return;
+        }
+        document.getElementById('modalAppealId').value = selectedAppeal.value;
+        document.getElementById('decisionModal').style.display = 'flex';
+        document.getElementById('errorMessage').textContent = '';
+    }
+
+    function closeModal() {
+        document.getElementById('decisionModal').style.display = 'none';
+        document.getElementById('decisionText').value = '';
+    }
+</script>
 </body>
 </html>
