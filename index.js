@@ -8,16 +8,17 @@ app.set('view engine', 'ejs');
 app.set('views', './views');
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+require('dotenv').config();
+
 
 let Appeal = null;
 let sequelize = null;
 
 async function init() {
-    sequelize = new Sequelize('postgres://postgres:000@localhost:5432/the_appeal_system', {
-        host: 'localhost',
-        port: 5432,
-        dialect: 'postgres',
-        logging: console.log, // Включить логирование SQL для отладки
+    const sequelize = new Sequelize(process.env.DB_NAME, process.env.DB_USER, process.env.DB_PASSWORD, {
+        host: process.env.DB_HOST,
+        port: parseInt(process.env.DB_PORT),
+        dialect: 'postgres'
     });
 
     try {
@@ -65,7 +66,7 @@ async function init() {
         updatedAt: false,
     });
 
-    await sequelize.sync({ force: true });
+    await sequelize.sync({});
     console.log('Database synced');
 }
 
@@ -142,23 +143,27 @@ app.post('/appeals', async (req, res) => {
 
 */
 
-//показ обращений по одной дате
+// GET /appeals (показ обращений с фильтром)
 app.get('/appeals', async (req, res) => {
-    let appeals = [];
     try {
-        const {date, startDate, endDate} = req.query;
+        const { date, startDate, endDate } = req.query;
         const where = {};
-
 
         // Фильтр по конкретной дате
         if (date) {
             const targetDate = new Date(date);
             if (isNaN(targetDate.getTime())) {
-                return res.status(400).render('appeals', {appeals: [], error: 'Invalid date format'});
+                return res.status(400).render('appeals', {
+                    appeals: [],
+                    errorMessage: 'Неверный формат даты',
+                    successMessage: ''
+                });
             }
+            const endOfDay = new Date(targetDate);
+            endOfDay.setHours(23, 59, 59, 999);
             where.createdAt = {
                 [Op.gte]: targetDate,
-                [Op.lte]: new Date(targetDate.setHours(23, 59, 59, 999)),
+                [Op.lte]: endOfDay
             };
         }
         // Фильтр по диапазону дат
@@ -166,71 +171,47 @@ app.get('/appeals', async (req, res) => {
             const start = new Date(startDate);
             const end = new Date(endDate);
             if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                return res.status(400).render('appeals', {appeals: [], error: 'Invalid date format'});
+                return res.status(400).render('appeals', {
+                    appeals: [],
+                    errorMessage: 'Неверный формат дат',
+                    successMessage: ''
+                });
             }
+            const endOfDay = new Date(end);
+            endOfDay.setHours(23, 59, 59, 999);
             where.createdAt = {
-                [Op.between]: [start, new Date(end.setHours(23, 59, 59, 999))],
+                [Op.between]: [start, endOfDay]
             };
         } else if (startDate || endDate) {
             return res.status(400).render('appeals', {
                 appeals: [],
-                error: 'Both startDate and endDate are required for range filtering'
+                errorMessage: 'Укажите обе даты для диапазона',
+                successMessage: ''
             });
         }
 
-        appeals = await Appeal.findAll({
-            where,
-            order: [['id', 'ASC']],
-        });
-
-        res.render('appeals', {appeals});
-    } catch (error) {
-        console.error('Error in /appeals:', error.message, error.stack);
-        res.status(500).render('appeals', {appeals: [], error: 'Failed to fetch appeals'});
-    }
-});
-
-//показ обращений по диапазону дат
-app.get('/appeals', async (req, res) => {
-    try {
-        const { date, startDate, endDate } = req.query;
-        const where = {};
-
-        if (date) {
-            const targetDate = new Date(date);
-            if (isNaN(targetDate.getTime())) {
-                return res.status(400).render('appeals', { appeals: [], error: 'Неверный формат даты' });
-            }
-            where.createdAt = {
-                [Op.gte]: targetDate,
-                [Op.lte]: new Date(targetDate.setHours(23, 59, 59, 999)),
-            };
-        } else if (startDate && endDate) {
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                return res.status(400).render('appeals', { appeals: [], error: 'Неверный формат дат' });
-            }
-            where.createdAt = {
-                [Op.between]: [start, new Date(end.setHours(23, 59, 59, 999))],
-            };
-        } else if (startDate || endDate) {
-            return res.status(400).render('appeals', { appeals: [], error: 'Укажите обе даты для диапазона' });
-        }
-
+        // Получаем обращения (все, если фильтр не задан)
         const appeals = await Appeal.findAll({
             where,
-            order: [['id', 'ASC']],
+            order: [['id', 'ASC']]
         });
 
-        res.render('appeals', { appeals, error: null });
+        res.render('appeals', {
+            appeals,
+            errorMessage: '',
+            successMessage: ''
+        });
     } catch (error) {
         console.error('Error in /appeals:', error.message, error.stack);
-        res.status(500).render('appeals', { appeals: [], error: 'Не удалось загрузить обращения' });
+        res.status(500).render('appeals', {
+            appeals: [],
+            errorMessage: 'Не удалось загрузить обращения',
+            successMessage: ''
+        });
     }
 });
 
-// перенаправление или пустой список
+
 app.post('/appeals', async (req, res) => {
     try {
         const { date, startDate, endDate } = req.body;
@@ -239,42 +220,104 @@ app.post('/appeals', async (req, res) => {
         // Формирование строки запроса для редиректа
         if (date) {
             if (isNaN(new Date(date).getTime())) {
-                return res.status(400).render('appeals', { appeals: [], error: 'Неверный формат даты' });
+                return res.status(400).render('appeals', {
+                    appeals: [],
+                    errorMessage: 'Неверный формат даты',
+                    successMessage: ''
+                });
             }
             query = `date=${encodeURIComponent(date)}`;
         } else if (startDate && endDate) {
             if (isNaN(new Date(startDate).getTime()) || isNaN(new Date(endDate).getTime())) {
-
-                return res.status(400).render('appeals', { appeals: [], error: 'Неверный формат дат' });
+                return res.status(400).render('appeals', {
+                    appeals: [],
+                    errorMessage: 'Неверный формат дат',
+                    successMessage: ''
+                });
             }
             query = `startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
         } else if (startDate || endDate) {
-
-            return res.status(400).render('appeals', { appeals: [], error: 'Укажите обе даты для диапазона' });
+            return res.status(400).render('appeals', {
+                appeals: [],
+                errorMessage: 'Укажите обе даты для диапазона',
+                successMessage: ''
+            });
         }
 
-        // Редирект на GET /appeals с параметрами
+
         res.redirect(`/appeals${query ? '?' + query : ''}`);
     } catch (error) {
-
         console.error('Error in /appeals:', error.message, error.stack);
-        res.status(500).render('appeals', { appeals: [], error: 'Не удалось обработать запрос' });
+        res.status(500).render('appeals', {
+            appeals: [],
+            errorMessage: 'Не удалось обработать запрос',
+            successMessage: ''
+        });
     }
+});
+app.post('/takeAppeal', async (req, res) => {
+    const { appealId } = req.body;
+
+    await Appeal.update(
+        { status: 'InProgress'},
+        { where: { id: appealId } }
+    );
+
+    const appeal = await Appeal.findOne({ where: { id: appealId} });
+    const show_modal = !!req.body.modal;
+
+    if (!appeal) {
+        return res.status(404).json({ error: 'Обращение не найдено' });
+    }
+
+    res.render('takeAppeal', { appeal, show_modal});
 });
 
 
-// перенаправление или пустой список
-app.post('/takeAppeal', async (req, res) => {
-    const { appealId } = req.body;
+app.post('/completeAppeal', async (req, res) => {
+    const { appealId, decision } = req.body;
     const appeal = await Appeal.findOne({ where: { id: appealId} });
     if (!appeal) {
         return res.status(404).json({ error: 'Обращение не найдено' });
     }
-    appeal.status = 'InProgress';
-    const show_modal = !!req.body.modal;
-    res.render('takeAppeal', { appeal, show_modal});
+    await Appeal.update(
+        { status: 'Completed',
+            decision: decision},
+        { where: { id: appealId } }
+    );
+    res.redirect('/appeals');
 });
 
+
+
+app.post('/cancelAllAppeal', async (req, res) => {
+    const { cancellationReason} = req.body;
+
+    await Appeal.update(
+        { status: 'Cancelled',
+            cancellationReason: cancellationReason},
+        { where: { status: 'InProgress' } }
+    );
+    res.redirect('/appeals');
+});
+
+
+
+app.post('/cancelSelectedAppeal', async (req, res) => {
+    const {appealId, cancellationReason} = req.body;
+
+    await Appeal.update(
+        { status: 'Cancelled',
+            cancellationReason: cancellationReason},
+        { where: { id: appealId }}
+    );
+    res.redirect('/appeals');
+});
+
+
+app.post('/return', async (req, res) => {
+    res.redirect('/appeals');
+});
 
 init().then(() => {
     app.listen(port, () => {

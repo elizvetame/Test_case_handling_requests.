@@ -11,7 +11,7 @@
             margin: 0 auto;
             padding: 20px;
         }
-        #buttonContainerId, #takeButtonContainerId {
+        #buttonContainerId, #takeButtonContainerId, #cancelButtonContainerId, #cancelSelectedContainerId {
             width: 200px;
             height: 40px;
             margin: 15px 0;
@@ -32,18 +32,20 @@
             cursor: pointer;
             width: 100%;
         }
-        button:hover {
+        button:hover:not(:disabled) {
             background: #ffca29;
+        }
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
         }
         .error {
             color: red;
             margin: 10px 0;
-
         }
         .success {
             color: green;
             margin: 10px 0;
-
         }
         table {
             width: 100%;
@@ -57,6 +59,49 @@
         }
         th {
             background: #f4f4f4;
+        }
+        .selected-row {
+            background-color: #f0f0f0;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            width: 400px;
+            max-width: 90%;
+            box-sizing: border-box;
+        }
+        .modal-content textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .modal-content button {
+            width: auto;
+            margin: 5px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
         }
     </style>
 </head>
@@ -74,7 +119,7 @@
     </div>
 </form>
 
-<form action="/takeAppeal" method="POST">
+<form action="/takeAppeal" method="POST" id="takeAppealForm">
     <table id="appealsTable">
         <thead>
         <tr>
@@ -92,7 +137,8 @@
         <% appeals.forEach(appeal => { %>
             <tr>
                 <td>
-                    <input type="radio" name="appealId" value="<%= appeal.id %>" <%= appeal.status !== 'New' ? 'disabled' : '' %>>
+                    <input type="radio" name="appealId" value="<%= appeal.id %>"
+                            <%= appeal.status !== 'New' && appeal.status !== 'InProgress' ? 'disabled' : '' %>>
                 </td>
                 <td><%= appeal.id || '-' %></td>
                 <td><%= appeal.topic || '-' %></td>
@@ -105,12 +151,121 @@
         <% }) %>
         </tbody>
     </table>
-    <div id="takeButtonContainerId">
-        <button type="submit">Взять в работу</button>
+    <div class="button-group">
+        <div id="takeButtonContainerId">
+            <button type="submit" id="takeButton" disabled>Взять в работу</button>
+        </div>
+        <div id="cancelSelectedContainerId">
+            <button type="button" id="cancelSelectedButton" disabled onclick="openCancelModal()">Отменить выбранное</button>
+        </div>
     </div>
 </form>
 
+<form action="/cancel" method="POST" id="takeAppealForm">
+    <div id="cancelButtonContainerId">
+        <button type="button" id="cancelButton" onclick="openModal()" disabled>Отменить все обращения в статусе "в работе"</button>
+    </div>
+</form>
+
+<!-- Модальное окно для отмены всех обращений -->
+<div id="decisionModal" class="modal">
+    <div class="modal-content">
+        <h2>Решение по обращениям</h2>
+        <form id="decisionForm" action="/cancelAllAppeal" method="POST">
+            <textarea id="decisionText" name="cancellationReason" placeholder="Введите причину отмены" required></textarea>
+            <button type="submit">Отправить</button>
+            <button type="button" onclick="closeModal()">Отмена</button>
+        </form>
+    </div>
+</div>
+
+<!-- Модальное окно для отмены выбранного обращения -->
+<div id="cancelSelectedModal" class="modal">
+    <div class="modal-content">
+        <h2>Отменить выбранное обращение</h2>
+        <form id="cancelSelectedForm" action="/cancelSelectedAppeal" method="POST">
+            <input type="hidden" id="selectedAppealId" name="appealId" value="">
+            <textarea id="cancelSelectedReason" name="cancellationReason" placeholder="Введите причину отмены" required></textarea>
+            <button type="submit">Отправить</button>
+            <button type="button" onclick="closeCancelModal()">Отмена</button>
+        </form>
+    </div>
+</div>
+
 <p id="errorMessage" class="error"></p>
 <p id="successMessage" class="success"></p>
+
+<script>
+
+    // Получаем кнопки
+    const takeButton = document.getElementById('takeButton');
+    const cancelSelectedButton = document.getElementById('cancelSelectedButton');
+    const cancelAllButton = document.getElementById('cancelButton'); // Новая кнопка
+    let selectedAppealId = null;
+
+    // Функция для проверки наличия обращений "в работе"
+    function checkInProgressAppeals() {
+        const inProgressRows = document.querySelectorAll('td:nth-child(5)'); // 5-я колонка - статус
+        let hasInProgress = false;
+
+        inProgressRows.forEach(td => {
+            if (td.textContent.trim() === 'InProgress') {
+                hasInProgress = true;
+            }
+        });
+
+        cancelAllButton.disabled = !hasInProgress;
+    }
+
+    //обработчик события на изменение радио-кнопок
+    document.querySelectorAll('input[name="appealId"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+
+
+            document.querySelectorAll('#appealsTable tr').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+
+            // Выделяем текущую строку
+            if (this.checked) {
+                this.closest('tr').classList.add('selected-row');
+                selectedAppealId = this.value;
+
+                // Активируем кнопки, если выбрано обращение
+                takeButton.disabled = false;
+                cancelSelectedButton.disabled = false;
+            }
+        });
+    });
+
+
+    document.addEventListener('DOMContentLoaded', function() {
+        checkInProgressAppeals();
+    });
+
+
+    function openModal() {
+        document.getElementById('decisionModal').style.display = 'flex';
+        document.getElementById('errorMessage').textContent = '';
+    }
+
+    function closeModal() {
+        document.getElementById('decisionModal').style.display = 'none';
+        document.getElementById('decisionText').value = '';
+    }
+
+    function openCancelModal() {
+        if (selectedAppealId) {
+            document.getElementById('selectedAppealId').value = selectedAppealId;
+            document.getElementById('cancelSelectedModal').style.display = 'flex';
+            document.getElementById('errorMessage').textContent = '';
+        }
+    }
+
+    function closeCancelModal() {
+        document.getElementById('cancelSelectedModal').style.display = 'none';
+        document.getElementById('cancelSelectedReason').value = '';
+    }
+</script>
 </body>
 </html>
